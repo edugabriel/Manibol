@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Manibol Pro - Ultra Scouting Engine</title>
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;900&family=JetBrains+Mono:wght@700&display=swap" rel="stylesheet">
+    
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #020617; }
+        .font-mono { font-family: 'JetBrains Mono', monospace; }
+        
+        ::-webkit-scrollbar { width: 4px; }
+        ::-webkit-scrollbar-track { background: #0f172a; }
+        ::-webkit-scrollbar-thumb { background: #334155; border-radius: 10px; }
+
+        .animate-in { animation: fadeIn 0.5s ease-out; }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* PASSO 1: CSS DO ALERTA VISUAL DE GOL */
+        #notification-container {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 9999;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .goal-alert {
+            background: #06b6d4;
+            color: #020617;
+            padding: 16px 24px;
+            border-radius: 12px;
+            font-weight: 900;
+            text-transform: uppercase;
+            box-shadow: 0 10px 40px rgba(6, 182, 212, 0.4);
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            border: 1px solid rgba(255,255,255,0.2);
+            animation: slideIn 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            transition: opacity 0.5s ease;
+        }
+
+        @keyframes slideIn {
+            from { transform: translateX(120%); opacity: 0; }
+            to { transform: translateX(0); opacity: 1; }
+        }
+    </style>
+</head>
+<body class="bg-slate-950 text-slate-200 h-screen overflow-hidden flex flex-col">
+
+    <div id="notification-container"></div>
+
+    <header class="h-16 bg-slate-900 border-b border-slate-800 flex items-center justify-between px-6 z-50 shrink-0">
+        <div onclick="goHome()" class="flex items-center gap-3 cursor-pointer group">
+            <div class="bg-cyan-500 p-2 rounded-xl shadow-[0_0_20px_rgba(6,182,212,0.3)] group-hover:scale-110 transition-transform">
+                <i class="fas fa-bolt text-slate-900 text-xl"></i>
+            </div>
+            <div>
+                <h1 class="text-xl font-black tracking-tighter text-white">MANIBOL<span class="text-cyan-400">PRO</span></h1>
+                <p class="text-[8px] font-bold text-slate-500 uppercase tracking-[0.2em] leading-none mt-1">Ultra Scouting Engine</p>
+            </div>
+        </div>
+        
+        <div class="flex-1 max-w-2xl mx-12">
+            <div class="relative group">
+                <i class="fas fa-search absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 text-xs"></i>
+                <input type="text" placeholder="Buscar por time, liga ou mercado..." class="w-full bg-slate-950 border border-slate-800 rounded-full py-2.5 pl-11 pr-6 text-xs text-white focus:outline-none focus:border-cyan-500/50 transition-all">
+            </div>
+        </div>
+
+        <div class="flex items-center gap-6">
+            <div class="flex flex-col items-end">
+                <span class="text-[10px] font-black text-emerald-500 uppercase flex items-center gap-1.5">
+                    <span class="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse"></span>
+                    SISTEMA ONLINE
+                </span>
+                <span class="text-[8px] font-bold text-slate-500 mt-0.5 uppercase">Mock API Mode</span>
+            </div>
+        </div>
+    </header>
+
+    <main class="flex flex-1 overflow-hidden">
+        
+        <aside class="w-64 bg-slate-950 border-r border-slate-800 flex flex-col shrink-0">
+            <div class="p-4 border-b border-slate-900 flex justify-between items-center bg-slate-900/20">
+                <span class="font-black uppercase text-[10px] text-slate-400 tracking-widest">Favoritos</span>
+                <i class="fas fa-star text-amber-500 text-[10px]"></i>
+            </div>
+            <div id="favorites-list" class="flex-1 overflow-y-auto p-3 space-y-2">
+                </div>
+        </aside>
+
+        <aside class="w-64 bg-slate-900 border-r border-slate-800 flex flex-col shrink-0">
+            <div class="p-4 border-b border-slate-800 flex justify-between items-center">
+                <span class="font-black uppercase text-[10px] text-slate-400 tracking-widest">Competições</span>
+                <i class="fas fa-trophy text-slate-600 text-[10px]"></i>
+            </div>
+            <div id="leagues-list" class="flex-1 overflow-y-auto">
+                </div>
+        </aside>
+
+        <section class="w-[450px] bg-slate-950 border-r border-slate-800 flex flex-col overflow-hidden shrink-0">
+            <div class="p-3 bg-slate-900/40 border-b border-slate-800 flex gap-2 shrink-0">
+                <button onclick="applyStrategyFilter('redCard')" id="filter-redCard" class="px-3 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-slate-400 text-[9px] font-black uppercase hover:text-red-500 transition-all">Red Card</button>
+                <button onclick="applyStrategyFilter('highPressure')" id="filter-highPressure" class="px-3 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-slate-400 text-[9px] font-black uppercase hover:text-emerald-500 transition-all font-mono">Pressão +80</button>
+            </div>
+            
+            <div id="match-feed" class="flex-1 overflow-y-auto p-4 flex flex-col gap-1">
+                </div>
+        </section>
+
+        <aside class="flex-1 bg-slate-900/50 overflow-y-auto relative">
+            <div id="quick-analysis" class="p-6 h-full">
+                <div class="h-full flex items-center justify-center opacity-20 flex-col gap-4 text-center">
+                    <i class="fas fa-chart-line text-6xl"></i>
+                    <p class="text-[10px] font-bold uppercase tracking-[0.2em]">Selecione um jogo para iniciar a análise</p>
+                </div>
+            </div>
+        </aside>
+    </main>
+
+    <script src="js/api.js"></script>
+    <script src="js/main.js"></script>
+    <div style="position: fixed; bottom: 20px; left: 20px; z-index: 9999; display: flex; flex-direction: column; gap: 8px;">
+        <button onclick="simularGol()" class="bg-emerald-600 text-white px-4 py-2 rounded-lg text-[10px] font-bold shadow-lg hover:bg-emerald-500 transition-all">
+            <i class="fas fa-plus mr-1"></i> GOL ARSENAL
+        </button>
+        <button onclick="simularPressao()" class="bg-cyan-600 text-white px-4 py-2 rounded-lg text-[10px] font-bold shadow-lg hover:bg-cyan-500 transition-all">
+            <i class="fas fa-fire mr-1"></i> PRESSÃO ARSENAL (85)
+        </button>
+    </div>
+    
+    <script>
+        function simularGol() {
+            window.placarArsenal++; 
+            console.log("%c [TESTE] Gol registrado! Novo placar: " + window.placarArsenal, "color: #10b981; font-weight: bold;");
+        }
+        
+        function simularPressao() {
+    window.apArsenal = 95; // Subimos para 95 para garantir o alerta máximo
+    console.log("%c [TESTE] Pressão EXPLODIU para 95!", "color: #06b6d4; font-weight: bold;");
+}
+    </script>
+</body>
+</html>
