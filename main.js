@@ -6,6 +6,7 @@ window.selectedLeague = "";
 window.activeStrategy = null; 
 window.lastDataSnapshot = {}; 
 window.activeTab = 'live';
+window.pressureHistory = {}; // Objeto para guardar o histórico de cada jogo
 
 const alertSounds = {
     goal: new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3'),
@@ -56,39 +57,44 @@ function checkForAlerts(newMatches, oldMatches) {
         const oldMatch = oldMatches.find(m => m.id == match.id);
         
         if (oldMatch) {
-            const novo = Number(match.scoreHome) + Number(match.scoreAway);
-            const antigo = Number(oldMatch.scoreHome) + Number(oldMatch.scoreAway);
+            // 1. LÓGICA DE GOL
+            const novoPlacar = Number(match.scoreHome) + Number(match.scoreAway);
+            const antigoPlacar = Number(oldMatch.scoreHome) + Number(oldMatch.scoreAway);
 
-            // SE ESSE LOG NÃO APARECER NO CONSOLE, A FUNÇÃO NÃO ESTÁ SENDO CHAMADA
-            console.log(`[AUDITORIA] ${match.home}: ${antigo} ➔ ${novo}`);
+            if (novoPlacar > antigoPlacar) {
+                if (alertSounds.goal) alertSounds.goal.play().catch(e => console.log("Som bloqueado"));
+                showNotification(`⚽ GOL! ${match.home} ${match.scoreHome} - ${match.scoreAway} ${match.away}`, "cyan");
+            }
 
-            if (novo > antigo) {
-                console.log("%c ⚽ GOL DETECTADO!", "color: #06b6d4; font-weight: bold; font-size: 14px;");
-                
-                alertSounds.goal.play().catch(() => {
-                    console.warn("Áudio bloqueado! Clique na página para liberar.");
-                });
-                
-                showNotification(`GOL! ${match.home} ${match.scoreHome} - ${match.scoreAway} ${match.away}`);
+            // 2. LÓGICA DE CARTÃO VERMELHO
+            const novoRed = Number(match.redCardsHome) + Number(match.redCardsAway);
+            const antigoRed = Number(oldMatch.redCardsHome) + Number(oldMatch.redCardsAway);
+
+            if (novoRed > antigoRed) {
+                if (alertSounds.redCard) alertSounds.redCard.play().catch(e => console.log("Som bloqueado"));
+                showNotification(`🟥 CARTÃO VERMELHO! Expulsão em ${match.home} x ${match.away}`, "red");
+                console.log("%c 🟥 CARTÃO VERMELHO DETECTADO!", "color: #ef4444; font-weight: bold;");
             }
         }
     });
 }
 
-function showNotification(text) {
+function showNotification(text, type = "cyan") {
     const container = document.getElementById('notification-container');
     if (!container) return;
 
-    const el = document.createElement('div');
-    el.className = 'goal-alert';
-    el.innerHTML = `<i class="fas fa-futbol mr-2"></i> ${text}`;
+    const n = document.createElement('div');
+    // Define a cor baseada no tipo
+    const bgColor = type === "red" ? "bg-red-600" : "bg-cyan-600";
     
-    container.appendChild(el);
-
-    // Remove após 5 segundos
+    n.className = `${bgColor} text-white px-6 py-4 rounded-xl shadow-2xl flex items-center gap-3 transform transition-all duration-500 translate-y-10 opacity-0 font-bold border border-white/20`;
+    n.innerHTML = `<i class="fas ${type === "red" ? 'fa-exclamation-triangle' : 'fa-check-circle'}"></i> <span>${text}</span>`;
+    
+    container.appendChild(n);
+    setTimeout(() => { n.classList.remove('translate-y-10', 'opacity-0'); }, 100);
     setTimeout(() => {
-        el.style.opacity = '0';
-        setTimeout(() => el.remove(), 500);
+        n.classList.add('translate-y-[-20px]', 'opacity-0');
+        setTimeout(() => n.remove(), 500);
     }, 5000);
 }
 
@@ -117,8 +123,6 @@ function renderFeed(matches) {
     feed.innerHTML = matches.map(m => {
         const isHT = m.time === "HT" || m.time === 45;
         const isFav = window.favorites.includes(m.id.toString());
-        
-        // Lógica de destaque por pressão extrema (>90)
         const homeHighPressure = m.apHome > 90;
         const awayHighPressure = m.apAway > 90;
 
@@ -137,16 +141,32 @@ function renderFeed(matches) {
             <div class="flex items-center justify-between">
                 <div class="space-y-1.5 flex-1">
                     <div class="flex justify-between items-center pr-4">
-                        <span class="text-[11px] font-bold transition-colors ${homeHighPressure ? 'text-orange-500 animate-pulse' : m.apHome > 70 ? 'text-cyan-400' : 'text-slate-200'}">
-                            ${m.home} ${homeHighPressure ? '🔥' : ''}
-                        </span>
+                        <div class="flex items-center gap-2">
+                            <span class="text-[11px] font-bold transition-colors ${homeHighPressure ? 'text-orange-500 animate-pulse' : m.apHome > 70 ? 'text-cyan-400' : 'text-slate-200'}">
+                                ${m.home} ${homeHighPressure ? '🔥' : ''}
+                            </span>
+                            ${m.redCardsHome > 0 ? `
+    <div class="relative flex items-center justify-center w-4 h-5 bg-red-600 rounded-[2px] shadow-lg rotate-[12deg] animate-pulse ml-2 border border-red-400">
+        <span class="text-[9px] font-black text-white rotate-[-12deg]">${m.redCardsHome}</span>
+        <div class="absolute inset-0 bg-white opacity-20 animate-ping rounded-[2px]"></div>
+    </div>
+` : ''}
+                        </div>
                         <span class="text-[11px] font-black text-white font-mono">${m.scoreHome}</span>
                     </div>
                     
                     <div class="flex justify-between items-center pr-4">
-                        <span class="text-[11px] font-bold transition-colors ${awayHighPressure ? 'text-orange-500 animate-pulse' : m.apAway > 70 ? 'text-cyan-400' : 'text-slate-200'}">
-                            ${m.away} ${awayHighPressure ? '🔥' : ''}
-                        </span>
+                        <div class="flex items-center gap-2">
+                            <span class="text-[11px] font-bold transition-colors ${awayHighPressure ? 'text-orange-500 animate-pulse' : m.apAway > 70 ? 'text-cyan-400' : 'text-slate-200'}">
+                                ${m.away} ${awayHighPressure ? '🔥' : ''}
+                            </span>
+                            ${m.redCardsAway > 0 ? `
+    <div class="relative flex items-center justify-center w-4 h-5 bg-red-600 rounded-[2px] shadow-lg rotate-[12deg] animate-pulse ml-2 border border-red-400">
+        <span class="text-[9px] font-black text-white rotate-[-12deg]">${m.redCardsAway}</span>
+        <div class="absolute inset-0 bg-white opacity-20 animate-ping rounded-[2px]"></div>
+    </div>
+` : ''}
+                        </div>
                         <span class="text-[11px] font-black text-white font-mono">${m.scoreAway}</span>
                     </div>
                 </div>
@@ -156,10 +176,6 @@ function renderFeed(matches) {
                         <i class="${isFav ? 'fas fa-star text-amber-500' : 'far fa-star'}"></i>
                     </button>
                 </div>
-            </div>
-            
-            <div class="mt-2 h-1 bg-white/5 rounded-full overflow-hidden flex">
-                <div style="width: ${(m.apHome / (m.apHome + m.apAway)) * 100}%" class="h-full bg-cyan-500/50"></div>
             </div>
         </div>`;
     }).join('');
@@ -203,6 +219,45 @@ function renderAnalysis() {
     if (window.lastAnalysisSnapshot === snapshot) return;
     window.lastAnalysisSnapshot = snapshot;
 
+    // --- NOVA LÓGICA DO BOT DE INSIGHTS ---
+    const isLateGame = m.time > 75;
+    const muitosEscanteios = (m.ckHome + m.ckAway) >= 9;
+    const pressaoAlta = (m.apHome > 80 || m.apAway > 80);
+
+    let insightContent = "";
+    if (isLateGame && pressaoAlta && muitosEscanteios) {
+        insightContent = `
+            <div class="bg-amber-500/10 border border-amber-500/50 p-4 rounded-xl border-l-4 border-amber-500 animate-in">
+                <div class="flex items-center gap-2 mb-2">
+                    <span class="relative flex h-2 w-2">
+                        <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                        <span class="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
+                    </span>
+                    <p class="text-amber-500 font-black text-[10px] uppercase tracking-wider">Estratégia: Canto Limite</p>
+                </div>
+                <p class="text-slate-300 text-[11px] leading-relaxed">
+                    Volume crítico de cantos detectado (${m.ckHome + m.ckAway}). O time sob pressão deve ceder novas oportunidades nos minutos finais. <strong>Foco no mercado de cantos.</strong>
+                </p>
+            </div>`;
+    } else if (m.apHome > 85 || m.apAway > 85) {
+        insightContent = `
+            <div class="bg-cyan-500/10 border border-cyan-500/50 p-4 rounded-xl border-l-4 border-cyan-500 animate-in">
+                <p class="text-cyan-400 font-black text-[10px] uppercase mb-2">⚠️ Alerta de Pressão Extrema</p>
+                <p class="text-slate-300 text-[11px] leading-relaxed">
+                    Padrão de golo iminente identificado. A linha de pressão rompeu os 85 AP. Recomenda-se monitorar o mercado de "Próximo Gol".
+                </p>
+            </div>`;
+    } else {
+        insightContent = `
+            <div class="flex flex-col items-center justify-center p-10 opacity-40 animate-in">
+                <i class="fas fa-microchip mb-3 text-slate-500 text-xl"></i>
+                <p class="text-slate-500 italic text-[11px] text-center">
+                    Analisando fluxo da partida... Aguardando padrões agressivos.
+                </p>
+            </div>`;
+    }
+    // --- FIM DA LÓGICA DO BOT ---
+
     container.innerHTML = `
         <div class="animate-in">
             <div class="bg-slate-900 p-6 rounded-2xl border border-white/5 mb-6 text-center shadow-2xl">
@@ -225,13 +280,22 @@ function renderAnalysis() {
                 <button onclick="switchTab('h2h')" class="flex-1 py-2 rounded-lg text-[10px] font-black uppercase transition-all ${window.activeTab === 'h2h' ? 'bg-cyan-500 text-slate-900' : 'text-slate-500 hover:text-white'}">Insights Bot</button>
             </div>
 
-            <div id="tab-content">${window.activeTab === 'live' ? renderLiveTab(m) : renderH2HTab(m)}</div>
+            <div id="tab-content">${window.activeTab === 'live' ? renderLiveTab(m) : insightContent}</div>
         </div>`;
 
-    if (window.activeTab === 'live') {
-        setTimeout(() => window.initPressureChart(m), 50);
+        if (window.activeTab === 'live') {
+            const canvas = document.getElementById('pressureChartCanvas');
+            
+            // Se o gráfico já existe na tela, não resetamos o HTML, apenas damos o "update"
+            if (canvas) {
+                window.initPressureChart(m);
+            } else {
+                // Se o canvas ainda não existe (troca de aba), esperamos um milissegundo e criamos
+                setTimeout(() => window.initPressureChart(m), 50);
+            }
+        }
+        // --- FIM DA SUBSTITUIÇÃO ---
     }
-}
 
 function renderLiveTab(m) {
     const totalAP = (m.apHome + m.apAway) || 1;
@@ -281,23 +345,58 @@ function renderH2HTab(m) {
 window.initPressureChart = function(m) {
     const canvas = document.getElementById('pressureChartCanvas');
     if (!canvas) return;
-    if (window.myPressureChart instanceof Chart) window.myPressureChart.destroy();
     const ctx = canvas.getContext('2d');
+
+    // Determina a cor baseada na pressão (Ciano ou Laranja se > 90)
+    const corLinha = m.apHome > 90 ? '#f97316' : '#06b6d4';
+    const corFundo = m.apHome > 90 ? 'rgba(249, 115, 22, 0.1)' : 'rgba(6, 182, 212, 0.1)';
+
+    // Inicializa histórico se não existir
+    if (!window.pressureHistory[m.id]) {
+        window.pressureHistory[m.id] = { home: [m.apHome], labels: [m.time + "'"] };
+    } else {
+        const hist = window.pressureHistory[m.id];
+        // Só adiciona se o valor for diferente para evitar redundância
+        if (hist.home[hist.home.length - 1] !== m.apHome) {
+            hist.home.push(m.apHome);
+            hist.labels.push(m.time + "'");
+            if (hist.home.length > 15) { hist.home.shift(); hist.labels.shift(); }
+        }
+    }
+
+    const currentHist = window.pressureHistory[m.id];
+
+    if (window.myPressureChart instanceof Chart) {
+        window.myPressureChart.destroy();
+    }
+
     window.myPressureChart = new Chart(ctx, {
         type: 'line',
         data: {
-            labels: [1,2,3,4,5,6,7,8,9,10],
+            labels: currentHist.labels,
             datasets: [{
-                data: [10, 25, 40, 30, 50, 70, 60, 85, 80, m.apHome],
-                borderColor: '#06b6d4',
-                backgroundColor: 'rgba(6, 182, 212, 0.1)',
-                fill: true, tension: 0.4, borderWidth: 2, pointRadius: 0
+                data: currentHist.home,
+                borderColor: corLinha, // Cor dinâmica aqui
+                backgroundColor: corFundo,
+                fill: true,
+                tension: 0.5, // Linhas curvas (Bézier)
+                borderWidth: 3,
+                pointRadius: 4,
+                pointBackgroundColor: corLinha
             }]
         },
         options: {
-            responsive: true, maintainAspectRatio: false,
+            responsive: true,
+            maintainAspectRatio: false,
+            animation: {
+                duration: 1000, // 1 segundo de deslize suave
+                easing: 'easeOutQuart'
+            },
             plugins: { legend: { display: false } },
-            scales: { x: { display: false }, y: { display: false, beginAtZero: true } }
+            scales: {
+                x: { grid: { display: false }, ticks: { color: '#475569', font: { size: 9 } } },
+                y: { beginAtZero: true, max: 100, display: false }
+            }
         }
     });
 };
@@ -338,18 +437,25 @@ window.toggleFavorite = function(id) {
 
 window.applyStrategyFilter = function(strat) {
     const btn = document.getElementById(`filter-${strat}`);
+    
+    // Se clicar no que já está ativo, desativa voltando para a cor padrão (Slate)
     if (window.activeStrategy === strat) {
         window.activeStrategy = null;
-        btn.classList.remove('bg-cyan-500', 'text-slate-900');
-        btn.classList.add('bg-slate-800', 'text-slate-400');
+        btn.className = "bg-slate-800 text-slate-400 px-3 py-1 rounded-lg text-[9px] font-black uppercase border border-white/5 transition-all";
     } else {
+        // Limpa todos os botões para o estado padrão
         document.querySelectorAll('[id^="filter-"]').forEach(b => {
-            b.classList.remove('bg-cyan-500', 'text-slate-900');
-            b.classList.add('bg-slate-800', 'text-slate-400');
+            b.className = "bg-slate-800 text-slate-400 px-3 py-1 rounded-lg text-[9px] font-black uppercase border border-white/5 transition-all";
         });
+        
         window.activeStrategy = strat;
-        btn.classList.add('bg-cyan-500', 'text-slate-900');
-        btn.classList.remove('bg-slate-800', 'text-slate-400');
+        
+        // Aplica cores específicas baseadas no tipo de filtro
+        if (strat === 'redCard') {
+            btn.className = "bg-red-600 text-white px-3 py-1 rounded-lg text-[9px] font-black uppercase border border-red-400 shadow-[0_0_15px_rgba(220,38,38,0.4)] transition-all";
+        } else if (strat === 'highPressure') {
+            btn.className = "bg-amber-500 text-slate-900 px-3 py-1 rounded-lg text-[9px] font-black uppercase border border-amber-400 shadow-[0_0_15px_rgba(245,158,11,0.4)] transition-all";
+        }
     }
     window.updateDashboard();
 };
