@@ -142,6 +142,59 @@
         <button onclick="simularPressao()" class="bg-cyan-600 text-white px-4 py-2 rounded-lg text-[10px] font-bold shadow-lg hover:bg-cyan-500 transition-all">
             <i class="fas fa-fire mr-1"></i> PRESSÃO ARSENAL (85)
         </button>
+        <button onclick="simularVermelho()" class="bg-red-600 text-white px-4 py-2 rounded-lg text-[10px] font-bold shadow-lg hover:bg-red-500 transition-all">
+            <i class="fas fa-square mr-1"></i> VERMELHO ARSENAL
+        </button>
+        <button onclick="testarEvolucaoGrafica()" class="bg-indigo-600 text-white px-4 py-2 rounded-lg text-[10px] font-black shadow-lg hover:bg-indigo-500 transition-all">
+            <i class="fas fa-chart-line mr-1"></i> TESTAR EVOLUÇÃO (3 FASES)
+        </button>
+        
+        <script>
+       function testarEvolucaoGrafica() {
+    console.log("🧪 Iniciando Laboratório de Evolução...");
+
+    // 1. Reset Total do histórico do Arsenal para o teste ser limpo
+    if (window.pressureHistory) {
+        window.pressureHistory['1'] = { home: [], labels: [] };
+    }
+
+    // Função auxiliar para injetar o dado e forçar o desenho
+    const injetarDado = (tempo, pressao) => {
+        window.tempoArsenal = tempo;
+        window.apArsenal = pressao;
+        
+        // Chamamos o updateDashboard para ele ler o api.js com os novos valores
+        if (typeof window.updateDashboard === 'function') {
+            window.updateDashboard();
+        }
+        console.log(`📍 Plotado: ${tempo}' - AP ${pressao}`);
+    };
+
+    // EXECUÇÃO EM ESCADA (3 ETAPAS)
+    
+    // Etapa 1: Agora
+    injetarDado(80, 40);
+
+    // Etapa 2: Daqui a 1.5 segundos
+    setTimeout(() => {
+        injetarDado(81, 70);
+    }, 1500);
+
+    // Etapa 3: Daqui a 3 segundos
+    setTimeout(() => {
+        injetarDado(82, 95);
+        console.log("🔥 Escala Crítica Atingida!");
+    }, 3000);
+}
+        </script>
+        
+        <script>
+            // Adiciona esta função no bloco de scripts do HTML
+            function simularVermelho() {
+                window.redArsenal++;
+                console.log("%c [TESTE] Cartão Vermelho registrado!", "color: #ef4444; font-weight: bold;");
+            }
+        </script>
     </div>
     
     <script>
