@@ -118,7 +118,16 @@
                 <button onclick="applyStrategyFilter('redCard')" id="filter-redCard" class="px-3 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-slate-400 text-[9px] font-black uppercase hover:text-red-500 transition-all">Red Card</button>
                 <button onclick="applyStrategyFilter('highPressure')" id="filter-highPressure" class="px-3 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-slate-400 text-[9px] font-black uppercase hover:text-emerald-500 transition-all font-mono">Pressão +80</button>
             </div>
-            
+        
+            <div class="flex gap-2 p-3 bg-slate-900/20 border-b border-white/5 shrink-0">
+                <button onclick="setStatusFilter('live')" id="btn-live" class="flex-1 py-2 rounded-lg text-[10px] font-black uppercase transition-all bg-cyan-500 text-slate-900">
+                    Live
+                </button>
+                <button onclick="setStatusFilter('upcoming')" id="btn-upcoming" class="flex-1 py-2 rounded-lg text-[10px] font-black uppercase transition-all text-slate-500 hover:text-white">
+                    Próximos
+                </button>
+            </div>
+        
             <div id="match-feed" class="flex-1 overflow-y-auto p-4 flex flex-col gap-1">
                 </div>
         </section>

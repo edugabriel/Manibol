@@ -1,4 +1,5 @@
 /* === 1. CONFIGURAÇÃO E ESTADO === */
+// --- Variáveis de Estado (Memória do App) ---
 window.currentMatches = []; 
 window.favorites = JSON.parse(localStorage.getItem('manibol_favs')) || []; 
 window.selectedMatchId = null; 
@@ -6,11 +7,38 @@ window.selectedLeague = "";
 window.activeStrategy = null; 
 window.lastDataSnapshot = {}; 
 window.activeTab = 'live';
-window.pressureHistory = {}; // Objeto para guardar o histórico de cada jogo
+window.pressureHistory = {}; 
+window.statusFilter = 'live'; // 'live' ou 'upcoming'
 
+// --- Objetos de Áudio ---
 const alertSounds = {
     goal: new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3'),
     redCard: new Audio('https://assets.mixkit.co/active_storage/sfx/951/951-preview.mp3')
+};
+
+// --- Funções de Controle de Estado ---
+window.setStatusFilter = function(status) {
+    window.statusFilter = status;
+    
+    // Captura os botões no HTML
+    const btnLive = document.getElementById('btn-live');
+    const btnUpcoming = document.getElementById('btn-upcoming');
+    
+    // Se os botões existirem, troca as classes CSS para dar o efeito visual de "selecionado"
+    if (btnLive && btnUpcoming) {
+        if (status === 'live') {
+            btnLive.className = "flex-1 py-2 rounded-lg text-[10px] font-black uppercase transition-all bg-cyan-500 text-slate-900";
+            btnUpcoming.className = "flex-1 py-2 rounded-lg text-[10px] font-black uppercase transition-all text-slate-500 hover:text-white";
+        } else {
+            btnUpcoming.className = "flex-1 py-2 rounded-lg text-[10px] font-black uppercase transition-all bg-cyan-500 text-slate-900";
+            btnLive.className = "flex-1 py-2 rounded-lg text-[10px] font-black uppercase transition-all text-slate-500 hover:text-white";
+        }
+    }
+    
+    // Força o dashboard a se atualizar para filtrar a lista de jogos imediatamente
+    if (typeof window.updateDashboard === 'function') {
+        window.updateDashboard();
+    }
 };
 
 /* === 2. MOTOR DE ATUALIZAÇÃO E ALERTAS === */
@@ -19,26 +47,31 @@ window.updateDashboard = async function() {
         const api = window.FootballAPI || window.MockAPI;
         if (!api) return;
 
-        // 1. CLONAGEM INDEPENDENTE: Criamos uma cópia real dos dados atuais
-        // Isso impede que o "passado" mude antes da hora.
-        const matchesAntigos = window.currentMatches.map(m => {
-            return { ...m };
-        });
+        // 1. CLONAGEM INDEPENDENTE
+        const matchesAntigos = window.currentMatches.map(m => ({ ...m }));
 
         // 2. Buscamos os dados novos da API
         const data = await api.fetchMatches();
         const matchesNovos = api.mapApiFootballData(data);
         
-        // 3. COMPARAÇÃO: Só comparamos se já existia algo na tela (evita alerta ao abrir a página)
+        // 3. COMPARAÇÃO (Alertas de gol/cartão)
         if (matchesAntigos.length > 0) {
             checkForAlerts(matchesNovos, matchesAntigos);
         }
         
-        // 4. ATUALIZAÇÃO DA MEMÓRIA: Agora sim o presente vira o que veio da API
+        // 4. ATUALIZAÇÃO DA MEMÓRIA
         window.currentMatches = matchesNovos;
         
-        // 5. RENDERIZAÇÃO VISUAL
+        // 5. RENDERIZAÇÃO VISUAL (COM OS FILTROS)
         let filtered = matchesNovos;
+
+        // --- INSERÇÃO DO FILTRO DE STATUS (LIVE vs PRÓXIMOS) ---
+        filtered = filtered.filter(m => {
+            const isLive = m.time > 0;
+            return window.statusFilter === 'live' ? isLive : !isLive;
+        });
+        // ------------------------------------------------------
+
         if (window.selectedLeague) filtered = filtered.filter(m => m.league === window.selectedLeague);
         if (window.activeStrategy) filtered = filtered.filter(m => window.checkStrategy(m, window.activeStrategy));
         
@@ -214,10 +247,13 @@ function renderAnalysis() {
     const m = window.currentMatches.find(x => x.id == window.selectedMatchId);
     if (!m) return;
 
-    // Evita flickering
-    const snapshot = JSON.stringify(m) + window.activeTab;
-    if (window.lastAnalysisSnapshot === snapshot) return;
-    window.lastAnalysisSnapshot = snapshot;
+    // --- 1. VERIFICAÇÃO DE STATUS ---
+    const isLive = m.time > 0;
+    
+    // Se o jogo NÃO começou e o usuário está na aba 'live', força a troca para 'h2h'
+    if (!isLive && window.activeTab === 'live') {
+        window.activeTab = 'h2h';
+    }
 
     // --- NOVA LÓGICA DO BOT DE INSIGHTS ---
     const isLateGame = m.time > 75;
@@ -225,9 +261,9 @@ function renderAnalysis() {
     const pressaoAlta = (m.apHome > 80 || m.apAway > 80);
 
     let insightContent = "";
-    if (isLateGame && pressaoAlta && muitosEscanteios) {
-        insightContent = `
-            <div class="bg-amber-500/10 border border-amber-500/50 p-4 rounded-xl border-l-4 border-amber-500 animate-in">
+    if (isLive) {
+        if (isLateGame && pressaoAlta && muitosEscanteios) {
+            insightContent = `<div class="bg-amber-500/10 border border-amber-500/50 p-4 rounded-xl border-l-4 border-amber-500 animate-in">
                 <div class="flex items-center gap-2 mb-2">
                     <span class="relative flex h-2 w-2">
                         <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
@@ -235,67 +271,91 @@ function renderAnalysis() {
                     </span>
                     <p class="text-amber-500 font-black text-[10px] uppercase tracking-wider">Estratégia: Canto Limite</p>
                 </div>
-                <p class="text-slate-300 text-[11px] leading-relaxed">
-                    Volume crítico de cantos detectado (${m.ckHome + m.ckAway}). O time sob pressão deve ceder novas oportunidades nos minutos finais. <strong>Foco no mercado de cantos.</strong>
-                </p>
+                <p class="text-slate-300 text-[11px] leading-relaxed">Volume crítico de cantos detectado (${m.ckHome + m.ckAway}). O time sob pressão deve ceder novas oportunidades nos minutos finais.</p>
             </div>`;
-    } else if (m.apHome > 85 || m.apAway > 85) {
-        insightContent = `
-            <div class="bg-cyan-500/10 border border-cyan-500/50 p-4 rounded-xl border-l-4 border-cyan-500 animate-in">
+        } else if (m.apHome > 85 || m.apAway > 85) {
+            insightContent = `<div class="bg-cyan-500/10 border border-cyan-500/50 p-4 rounded-xl border-l-4 border-cyan-500 animate-in">
                 <p class="text-cyan-400 font-black text-[10px] uppercase mb-2">⚠️ Alerta de Pressão Extrema</p>
-                <p class="text-slate-300 text-[11px] leading-relaxed">
-                    Padrão de golo iminente identificado. A linha de pressão rompeu os 85 AP. Recomenda-se monitorar o mercado de "Próximo Gol".
-                </p>
+                <p class="text-slate-300 text-[11px] leading-relaxed">Padrão de golo iminente identificado. A linha de pressão rompeu os 85 AP.</p>
             </div>`;
-    } else {
-        insightContent = `
-            <div class="flex flex-col items-center justify-center p-10 opacity-40 animate-in">
+        } else {
+            insightContent = `<div class="flex flex-col items-center justify-center p-10 opacity-40 animate-in">
                 <i class="fas fa-microchip mb-3 text-slate-500 text-xl"></i>
-                <p class="text-slate-500 italic text-[11px] text-center">
-                    Analisando fluxo da partida... Aguardando padrões agressivos.
-                </p>
+                <p class="text-slate-500 italic text-[11px] text-center">Analisando fluxo da partida...</p>
             </div>`;
+        }
+    } else {
+        // Conteúdo para Jogo Pré-Live
+        insightContent = `<div class="bg-slate-800/50 border border-white/5 p-4 rounded-xl animate-in">
+            <p class="text-white font-black text-[10px] uppercase mb-2 italic">📋 Análise Pré-Jogo</p>
+            <p class="text-slate-400 text-[11px]">Aguardando escalações oficiais para gerar insights de tendência de pressão.</p>
+        </div>`;
     }
-    // --- FIM DA LÓGICA DO BOT ---
 
-    container.innerHTML = `
-        <div class="animate-in">
-            <div class="bg-slate-900 p-6 rounded-2xl border border-white/5 mb-6 text-center shadow-2xl">
-                <div class="text-[10px] font-black text-slate-500 uppercase mb-4 tracking-[0.2em]">${m.league}</div>
-                <div class="flex justify-around items-center">
-                    <div class="w-1/3">
-                        <div class="text-[11px] font-black text-white uppercase mb-2 truncate">${m.home}</div>
-                        <div class="text-4xl font-black font-mono text-white">${m.scoreHome}</div>
-                    </div>
-                    <div class="text-slate-700 italic font-black text-xl">VS</div>
-                    <div class="w-1/3">
-                        <div class="text-[11px] font-black text-white uppercase mb-2 truncate">${m.away}</div>
-                        <div class="text-4xl font-black font-mono text-white">${m.scoreAway}</div>
+    // --- LOGICA DE ATUALIZAÇÃO INTELIGENTE ---
+    const hasHeader = container.querySelector('.bg-slate-900');
+    
+    // NOVIDADE: Verifica se as abas que estão lá condizem com o status do jogo atual
+    const abasAtuaisSaoLive = container.querySelector('button[onclick*="switchTab(\'live\')"]') !== null;
+    const precisaTrocarAbas = isLive !== abasAtuaisSaoLive;
+
+    // Se não tem header OU se precisamos trocar o tipo de abas (Live vs Upcoming)
+    if (!hasHeader || precisaTrocarAbas) {
+        // Forçamos a reconstrução completa do container para atualizar as abas
+        container.innerHTML = `
+            <div class="animate-in">
+                <div class="bg-slate-900 p-6 rounded-2xl border border-white/5 mb-6 text-center shadow-2xl">
+                    <div class="text-[10px] font-black text-slate-500 uppercase mb-4 tracking-[0.2em]">${m.league}</div>
+                    <div class="flex justify-around items-center">
+                        <div class="w-1/3 text-center">
+                            <div class="text-[11px] font-black text-white uppercase mb-2 truncate">${m.home}</div>
+                            <div class="text-4xl font-black font-mono text-white" id="score-home-detail">${m.scoreHome}</div>
+                        </div>
+                        <div class="text-slate-700 italic font-black text-xl">${isLive ? 'VS' : (m.time_start || 'VS')}</div>
+                        <div class="w-1/3 text-center">
+                            <div class="text-[11px] font-black text-white uppercase mb-2 truncate">${m.away}</div>
+                            <div class="text-4xl font-black font-mono text-white" id="score-away-detail">${m.scoreAway}</div>
+                        </div>
                     </div>
                 </div>
-            </div>
 
-            <div class="flex gap-2 p-1 bg-slate-950 rounded-xl border border-white/5 mb-6">
-                <button onclick="switchTab('live')" class="flex-1 py-2 rounded-lg text-[10px] font-black uppercase transition-all ${window.activeTab === 'live' ? 'bg-cyan-500 text-slate-900' : 'text-slate-500 hover:text-white'}">Live Stats</button>
-                <button onclick="switchTab('h2h')" class="flex-1 py-2 rounded-lg text-[10px] font-black uppercase transition-all ${window.activeTab === 'h2h' ? 'bg-cyan-500 text-slate-900' : 'text-slate-500 hover:text-white'}">Insights Bot</button>
-            </div>
+                <div class="flex gap-2 p-1 bg-slate-950 rounded-xl border border-white/5 mb-6">
+                    ${isLive ? `
+                        <button onclick="switchTab('live')" class="tab-btn flex-1 py-2 rounded-lg text-[10px] font-black uppercase transition-all ${window.activeTab === 'live' ? 'bg-cyan-500 text-slate-900' : 'text-slate-500 hover:text-white'}">Live Stats</button>
+                    ` : ''}
+                    <button onclick="switchTab('h2h')" class="tab-btn flex-1 py-2 rounded-lg text-[10px] font-black uppercase transition-all ${window.activeTab === 'h2h' ? 'bg-cyan-500 text-slate-900' : 'text-slate-500 hover:text-white'}">${isLive ? 'Insights Bot' : 'Análise Pré-Jogo'}</button>
+                    ${!isLive ? `
+                        <button onclick="switchTab('lineups')" class="tab-btn flex-1 py-2 rounded-lg text-[10px] font-black uppercase transition-all ${window.activeTab === 'lineups' ? 'bg-cyan-500 text-slate-900' : 'text-slate-500 hover:text-white'}">Escalações</button>
+                    ` : ''}
+                </div>
 
-            <div id="tab-content">${window.activeTab === 'live' ? renderLiveTab(m) : insightContent}</div>
-        </div>`;
-
-        if (window.activeTab === 'live') {
-            const canvas = document.getElementById('pressureChartCanvas');
-            
-            // Se o gráfico já existe na tela, não resetamos o HTML, apenas damos o "update"
-            if (canvas) {
-                window.initPressureChart(m);
-            } else {
-                // Se o canvas ainda não existe (troca de aba), esperamos um milissegundo e criamos
-                setTimeout(() => window.initPressureChart(m), 50);
-            }
-        }
-        // --- FIM DA SUBSTITUIÇÃO ---
+                <div id="tab-content"></div>
+            </div>`;
+    } else {
+        // Se já tem o header certo, apenas atualiza os números para ser rápido
+        const scoreH = document.getElementById('score-home-detail');
+        const scoreA = document.getElementById('score-away-detail');
+        if(scoreH) scoreH.innerText = m.scoreHome;
+        if(scoreA) scoreA.innerText = m.scoreAway;
     }
+
+    const tabContent = document.getElementById('tab-content');
+    
+    // Gerenciamento Inteligente do Conteúdo
+    if (window.activeTab === 'live' && isLive) {
+        const canvas = document.getElementById('pressureChartCanvas');
+        if (!canvas) {
+            tabContent.innerHTML = renderLiveTab(m);
+            setTimeout(() => window.initPressureChart(m), 50);
+        } else {
+            window.initPressureChart(m);
+        }
+    } else if (window.activeTab === 'lineups') {
+        tabContent.innerHTML = `<div class="p-10 text-center opacity-30 text-[10px] font-black uppercase tracking-widest">Escalações disponíveis 1h antes do jogo</div>`;
+    } else {
+        tabContent.innerHTML = insightContent;
+    }
+}
 
 function renderLiveTab(m) {
     const totalAP = (m.apHome + m.apAway) || 1;
@@ -347,17 +407,17 @@ window.initPressureChart = function(m) {
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
 
-    // Determina a cor baseada na pressão (Ciano ou Laranja se > 90)
+    // 1. Definição das cores dinâmicas
     const corLinha = m.apHome > 90 ? '#f97316' : '#06b6d4';
     const corFundo = m.apHome > 90 ? 'rgba(249, 115, 22, 0.1)' : 'rgba(6, 182, 212, 0.1)';
 
-    // Inicializa histórico se não existir
+    // 2. Gerenciamento do Histórico (Memória)
     if (!window.pressureHistory[m.id]) {
         window.pressureHistory[m.id] = { home: [m.apHome], labels: [m.time + "'"] };
     } else {
         const hist = window.pressureHistory[m.id];
-        // Só adiciona se o valor for diferente para evitar redundância
-        if (hist.home[hist.home.length - 1] !== m.apHome) {
+        // Só adiciona se o tempo for novo OU a pressão mudou
+        if (hist.labels[hist.labels.length - 1] !== m.time + "'" || hist.home[hist.home.length - 1] !== m.apHome) {
             hist.home.push(m.apHome);
             hist.labels.push(m.time + "'");
             if (hist.home.length > 15) { hist.home.shift(); hist.labels.shift(); }
@@ -366,39 +426,49 @@ window.initPressureChart = function(m) {
 
     const currentHist = window.pressureHistory[m.id];
 
-    if (window.myPressureChart instanceof Chart) {
-        window.myPressureChart.destroy();
-    }
+    // 3. A MÁGICA: Se o gráfico já existe, APENAS ATUALIZE (Não destrua!)
+    if (window.myPressureChart instanceof Chart && window.myPressureChart.ctx.canvas.id === 'pressureChartCanvas') {
+        window.myPressureChart.data.labels = currentHist.labels;
+        window.myPressureChart.data.datasets[0].data = currentHist.home;
+        window.myPressureChart.data.datasets[0].borderColor = corLinha;
+        window.myPressureChart.data.datasets[0].pointBackgroundColor = corLinha;
+        window.myPressureChart.data.datasets[0].backgroundColor = corFundo;
+        
+        window.myPressureChart.update('active'); // Atualização suave com animação
+    } else {
+        // Se o gráfico não existe (primeira vez ou mudou de jogo), cria um novo
+        if (window.myPressureChart instanceof Chart) window.myPressureChart.destroy();
 
-    window.myPressureChart = new Chart(ctx, {
-        type: 'line',
-        data: {
-            labels: currentHist.labels,
-            datasets: [{
-                data: currentHist.home,
-                borderColor: corLinha, // Cor dinâmica aqui
-                backgroundColor: corFundo,
-                fill: true,
-                tension: 0.5, // Linhas curvas (Bézier)
-                borderWidth: 3,
-                pointRadius: 4,
-                pointBackgroundColor: corLinha
-            }]
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            animation: {
-                duration: 1000, // 1 segundo de deslize suave
-                easing: 'easeOutQuart'
+        window.myPressureChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: currentHist.labels,
+                datasets: [{
+                    data: currentHist.home,
+                    borderColor: corLinha,
+                    backgroundColor: corFundo,
+                    fill: true,
+                    tension: 0.5, // Curvas de Bézier suaves
+                    borderWidth: 3,
+                    pointRadius: 4,
+                    pointBackgroundColor: corLinha
+                }]
             },
-            plugins: { legend: { display: false } },
-            scales: {
-                x: { grid: { display: false }, ticks: { color: '#475569', font: { size: 9 } } },
-                y: { beginAtZero: true, max: 100, display: false }
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                animation: {
+                    duration: 1000,
+                    easing: 'easeOutQuart'
+                },
+                plugins: { legend: { display: false } },
+                scales: {
+                    x: { grid: { display: false }, ticks: { color: '#475569', font: { size: 9 } } },
+                    y: { beginAtZero: true, max: 100, display: false }
+                }
             }
-        }
-    });
+        });
+    }
 };
 
 window.goHome = function() {
