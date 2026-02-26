@@ -9,6 +9,7 @@ window.lastDataSnapshot = {};
 window.activeTab = 'live';
 window.pressureHistory = {}; 
 window.statusFilter = 'live'; // 'live' ou 'upcoming'
+window.lastFavsSnapshot = "";
 
 // --- Objetos de Áudio ---
 const alertSounds = {
@@ -62,19 +63,24 @@ window.updateDashboard = async function() {
         // 4. ATUALIZAÇÃO DA MEMÓRIA
         window.currentMatches = matchesNovos;
         
-        // 5. RENDERIZAÇÃO VISUAL (COM OS FILTROS)
+        // 5. ATUALIZAÇÃO DOS CONTADORES (Botões Live/Próximos)
+        // Chamamos a função para injetar as quantidades nos botões da coluna 3
+        window.updateStatusCounters(matchesNovos);
+
+        // 6. RENDERIZAÇÃO VISUAL (COM OS FILTROS)
         let filtered = matchesNovos;
 
-        // --- INSERÇÃO DO FILTRO DE STATUS (LIVE vs PRÓXIMOS) ---
+        // --- FILTRO DE STATUS (LIVE vs PRÓXIMOS) ---
         filtered = filtered.filter(m => {
             const isLive = m.time > 0;
             return window.statusFilter === 'live' ? isLive : !isLive;
         });
-        // ------------------------------------------------------
 
+        // --- FILTROS DE LIGA E ESTRATÉGIA ---
         if (window.selectedLeague) filtered = filtered.filter(m => m.league === window.selectedLeague);
         if (window.activeStrategy) filtered = filtered.filter(m => window.checkStrategy(m, window.activeStrategy));
         
+        // --- RENDERS FINAIS ---
         renderLeagues(matchesNovos);
         renderFeed(filtered);
         renderFavorites();
@@ -82,6 +88,25 @@ window.updateDashboard = async function() {
         
     } catch (e) { 
         console.error("Erro no motor de atualização:", e); 
+    }
+};
+
+// FUNÇÃO AUXILIAR PARA OS CONTADORES DA COLUNA 3
+window.updateStatusCounters = function(allMatches) {
+    const totalLive = allMatches.filter(m => m.time > 0).length;
+    const totalUpcoming = allMatches.filter(m => m.time === 0 || !m.time).length;
+
+    const btnLive = document.getElementById('btn-live');
+    const btnUpcoming = document.getElementById('btn-upcoming');
+
+    // Estilo Badge: contraste nítido, fundo escuro e borda sutil
+    const badgeStyle = "ml-2 bg-black/40 px-2 py-0.5 rounded text-[10px] border border-white/10 font-mono";
+
+    if (btnLive) {
+        btnLive.innerHTML = `Live <span class="${badgeStyle} text-cyan-400">${totalLive}</span>`;
+    }
+    if (btnUpcoming) {
+        btnUpcoming.innerHTML = `Próximos <span class="${badgeStyle} text-slate-300">${totalUpcoming}</span>`;
     }
 };
 
@@ -135,17 +160,30 @@ function showNotification(text, type = "cyan") {
 function renderLeagues(matches) {
     const list = document.getElementById('leagues-list');
     if (!list) return;
+
+    const counts = {};
+    matches.forEach(m => {
+        counts[m.league] = (counts[m.league] || 0) + 1;
+    });
+
     const leagues = [...new Set(matches.map(m => m.league))].sort();
     
-    let html = `<div onclick="filterLeague('')" class="p-4 hover:bg-slate-800 cursor-pointer border-l-4 ${window.selectedLeague === '' ? 'border-cyan-500 bg-slate-800 text-white' : 'border-transparent text-slate-400'} transition-all">
+    // Badge Style para reutilizar
+    const badgeStyle = "text-[10px] font-black text-slate-200 bg-white/10 px-2 py-0.5 rounded-full border border-white/5";
+
+    // Ajuste em TODAS AS LIGAS para manter a coerência
+    let html = `<div onclick="filterLeague('')" class="p-4 hover:bg-slate-800 cursor-pointer border-l-4 ${window.selectedLeague === '' ? 'border-cyan-500 bg-slate-800 text-white' : 'border-transparent text-slate-400'} transition-all flex justify-between items-center">
         <span class="text-[10px] font-black uppercase tracking-widest">Todas as Ligas</span>
+        <span class="${badgeStyle}">${matches.length}</span>
     </div>`;
     
     leagues.forEach(l => {
-        html += `<div onclick="filterLeague('${l}')" class="p-4 hover:bg-slate-800 cursor-pointer border-l-4 ${window.selectedLeague === l ? 'border-cyan-500 bg-slate-800 text-white' : 'border-transparent text-slate-400'} transition-all">
+        html += `<div onclick="filterLeague('${l}')" class="p-4 hover:bg-slate-800 cursor-pointer border-l-4 ${window.selectedLeague === l ? 'border-cyan-500 bg-slate-800 text-white' : 'border-transparent text-slate-400'} transition-all flex justify-between items-center">
             <span class="text-[10px] font-bold uppercase">${l}</span>
+            <span class="${badgeStyle}">${counts[l]}</span>
         </div>`;
     });
+    
     list.innerHTML = html;
 }
 
@@ -214,23 +252,52 @@ function renderFeed(matches) {
     }).join('');
 }
 
-function renderFavorites() {
-    const list = document.getElementById('favorites-list');
-    if (!list) return;
-    const favMatches = window.currentMatches.filter(m => window.favorites.includes(m.id.toString()));
+window.renderFavorites = function() {
+    const container = document.getElementById('favorites-list');
+    if (!container) return;
     
-    if (favMatches.length === 0) {
-        list.innerHTML = `<div class="p-4 text-center opacity-20 text-[8px] font-black uppercase tracking-widest">Nenhum favorito</div>`;
+    if (window.favorites.length === 0) {
+        container.innerHTML = `<p class="text-[9px] text-slate-600 uppercase text-center py-4 tracking-widest opacity-50">Lista vazia</p>`;
+        window.lastFavsSnapshot = ""; // Limpa o snapshot
         return;
     }
 
-    list.innerHTML = favMatches.map(m => `
-        <div onclick="selectMatch('${m.id}')" class="p-2 mb-1 bg-slate-900/30 border border-white/5 rounded flex justify-between items-center cursor-pointer hover:bg-slate-800">
-            <span class="text-[9px] font-bold truncate pr-2">${m.home}</span>
-            <span class="text-[9px] font-black text-cyan-500">${m.scoreHome}-${m.scoreAway}</span>
-        </div>
-    `).join('');
-}
+    // Criamos uma "assinatura" do estado atual dos favoritos
+    // Se o placar ou o tempo mudarem, a assinatura muda
+    const currentSnapshot = window.favorites.map(id => {
+        const m = window.currentMatches.find(x => x.id == id);
+        return m ? `${m.id}-${m.scoreHome}${m.scoreAway}-${m.time}` : '';
+    }).join('|');
+
+    // Se nada mudou desde a última vez, não fazemos nada (evita o pisca-pisca)
+    if (window.lastFavsSnapshot === currentSnapshot) return;
+    window.lastFavsSnapshot = currentSnapshot;
+
+    let html = "";
+    window.favorites.forEach(id => {
+        const m = window.currentMatches.find(x => x.id == id);
+        if (m) {
+            html += `
+                <div onclick="selectMatch('${m.id}')" class="group bg-slate-900/40 hover:bg-slate-800/60 p-3 rounded-xl border border-white/5 mb-2 cursor-pointer transition-all">
+                    <div class="flex justify-between items-center mb-1">
+                        <span class="text-[9px] text-slate-400 font-black uppercase tracking-tighter truncate w-3/4">
+                            ${m.home} <span class="text-slate-600 mx-1">vs</span> ${m.away}
+                        </span>
+                        <span class="text-[10px] font-mono font-black text-cyan-400">
+                            ${m.scoreHome}-${m.scoreAway}
+                        </span>
+                    </div>
+                    <div class="flex justify-between items-center">
+                        <span class="text-[9px] text-slate-500 font-bold uppercase">Min: <span class="text-slate-300">${m.time}'</span></span>
+                        <button onclick="event.stopPropagation(); toggleFavorite('${m.id}')" class="p-1 hover:scale-110 transition-transform">
+                            <i class="fas fa-star text-[10px] text-amber-500"></i>
+                        </button>
+                    </div>
+                </div>`;
+        }
+    });
+    container.innerHTML = html;
+};
 
 /* === 4. ANÁLISE E ABAS === */
 function renderAnalysis() {
@@ -479,10 +546,29 @@ window.goHome = function() {
     window.updateDashboard();
 };
 
-window.selectMatch = function(id) {
-    window.selectedMatchId = id;
-    window.lastAnalysisSnapshot = null;
+window.selectMatch = function(matchId) {
+    window.selectedMatchId = matchId;
+    
+    // 1. Encontra os dados do jogo selecionado
+    const m = window.currentMatches.find(x => x.id == matchId);
+    if (!m) return;
+
+    // 2. SINCRONIZAÇÃO AUTOMÁTICA DE STATUS
+    // Se o jogo clicado for Live (time > 0), mas o filtro estava em 'upcoming', muda para 'live'
+    const statusDoJogo = m.time > 0 ? 'live' : 'upcoming';
+    if (window.statusFilter !== statusDoJogo) {
+        window.setStatusFilter(statusDoJogo);
+    }
+
+    // 3. SINCRONIZAÇÃO AUTOMÁTICA DE LIGA
+    // Seleciona a liga do jogo para que ele não suma do feed se houver filtro de liga ativo
+    if (window.selectedLeague !== m.league) {
+        window.selectedLeague = m.league;
+    }
+
+    // 4. Atualiza a tela
     window.updateDashboard();
+    window.renderAnalysis();
 };
 
 window.switchTab = function(tab) {
@@ -499,10 +585,29 @@ window.filterLeague = function(league) {
 window.toggleFavorite = function(id) {
     const sId = id.toString();
     const idx = window.favorites.indexOf(sId);
-    if (idx > -1) window.favorites.splice(idx, 1);
-    else window.favorites.push(sId);
+    
+    if (idx > -1) {
+        window.favorites.splice(idx, 1);
+    } else {
+        window.favorites.push(sId);
+    }
+    
     localStorage.setItem('manibol_favs', JSON.stringify(window.favorites));
-    window.updateDashboard();
+    
+    // Em vez de updateDashboard (que busca dados na API), 
+    // chamamos apenas o que precisa ser redesenhado na tela:
+    window.renderFavorites(); 
+    
+    // Se o renderFeed estiver disponível, atualizamos ele também 
+    // para a estrelinha mudar de cor no feed principal na hora.
+    if (typeof renderFeed === 'function') {
+        // Usamos os matches que já estão na memória
+        const filtered = window.currentMatches.filter(m => {
+            const isLive = m.time > 0;
+            return window.statusFilter === 'live' ? isLive : !isLive;
+        });
+        window.renderFeed(filtered);
+    }
 };
 
 window.applyStrategyFilter = function(strat) {
